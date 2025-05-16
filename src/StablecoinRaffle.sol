@@ -90,7 +90,7 @@ contract StablecoinRaffle {
         }
 
         // Add player to the players list
-        s_enteredPlayers.push(msg.sender);
+        s_enteredPlayers.push(payable(msg.sender));
 
         // Update the game balance
         s_gameBalance += msg.value;
