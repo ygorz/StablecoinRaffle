@@ -64,7 +64,7 @@ import {AutomationCompatibleInterface} from "@chainlink/contracts/src/v0.8/autom
  * parameters and then when met, pick a winner and mint them the stablecoin.
  */
 contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterface, ReentrancyGuard {
-    /*------------------------- ERRORS -------------------------*/
+    /*--------------- ERRORS -----------------------------------------------------*/
     error StablecoinRaffle__NeedsMoreThanZero();
     error StablecoinRaffle__SendMoreEthToEnterRaffle();
     error StablecoinRaffle__RaffleNotOpen();
@@ -72,16 +72,16 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
     error StablecoinRaffle__NotEnoughStablecoinToRedeem();
     error StablecoinRaffle__TransferFailed();
     error StablecoinRaffle__NotEnoughEthInVaultToRedeem();
-    error StablecoinRaffle__RedeemingBreaksProtocolHealthFactor();
+    error StablecoinRaffle__RedeemingBreaksProtocolHealth();
 
-    /*------------------------- TYPE DECLARATIONS --------------*/
+    /*--------------- TYPE DECLARATIONS ------------------------------------------*/
     enum RaffleGameState {
         OPEN, // 0
         CALCULATING // 1
 
     }
 
-    /*------------------------- STATE VARIABLES ----------------*/
+    /*--------------- STATE VARIABLES --------------------------------------------*/
     StaluxCoin private immutable i_stablecoin;
     AggregatorV3Interface private immutable i_priceFeed;
 
@@ -111,14 +111,15 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
     uint16 private constant REQUEST_CONFIRMATIONS = 3;
     uint32 private constant NUM_WORDS = 1;
 
-    /*------------------------- EVENTS -------------------------*/
+    /*--------------- EVENTS -----------------------------------------------------*/
     event RaffleEntered(address indexed player);
     event RaffleWinnerPicked(address indexed winner);
     event StablecoinRedeemed(
         address indexed redeemer, uint256 indexed amountOfStablecoin, uint256 indexed adjustedAmountInEth
     );
+    event RequestedRaffleWinner(uint256 indexed requestId);
 
-    /*------------------------- MODIFIERS ----------------------*/
+    /*--------------- MODIFIERS --------------------------------------------------*/
     modifier moreThanZero(uint256 amount) {
         if (amount <= 0) {
             revert StablecoinRaffle__NeedsMoreThanZero();
@@ -127,8 +128,7 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
     }
 
     /*\/-\/-\/-\/-\/-\/-\/-\/-- FUNCTIONS --\/-\/-\/-\/-\/-\/-\/*/
-
-    /*------------------------- CONSTRUCTOR --------------------*/
+    /*--------------- CONSTRUCTOR ------------------------------------------------*/
     constructor(
         address stablecoin,
         uint256 entranceFee,
@@ -151,7 +151,7 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
         s_gameState = RaffleGameState.OPEN; // Set the initial game state to OPEN
     }
 
-    /*------------------------- RECEIVE/FALLBACK FUNCTIONS -----*/
+    /*--------------- RECEIVE/FALLBACK FUNCTIONS ---------------------------------*/
     receive() external payable {
         enterRaffle();
     }
@@ -160,7 +160,7 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
         enterRaffle();
     }
 
-    /*------------------------- EXTERNAL FUNCTIONS -------------*/
+    /*--------------- PUBLIC FUNCTIONS -------------------------------------------*/
     /**
      * @notice Allows players to enter the raffle by sending ETH.
      * The amount must be greater than 0 and must meet the entrance fee in USD.
@@ -168,7 +168,7 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
      */
     function enterRaffle() public payable moreThanZero(msg.value) {
         // Check if the player has sent the correct amount of ETH in Usd value
-        if (_getUsdValueOfEth(msg.value) < i_entranceUsdFee) {
+        if (usdValueOfEth(msg.value) < i_entranceUsdFee) {
             revert StablecoinRaffle__SendMoreEthToEnterRaffle();
         }
 
@@ -185,6 +185,7 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
         s_gameRoundBalance += msg.value;
     }
 
+    /*--------------- EXTERNAL FUNCTIONS -----------------------------------------*/
     /**
      * @notice This function, when conditions are met, will go through
      * the process of picking a winner and minting the stablecoin to them.
@@ -218,7 +219,8 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
 
         // Send VRF request to VRFCoordinator
         // "Words" = Random number
-        s_vrfCoordinator.requestRandomWords(request);
+        uint256 requestId = s_vrfCoordinator.requestRandomWords(request);
+        emit RequestedRaffleWinner(requestId); // redundant as vrfcoordinator emits too
     }
 
     /**
@@ -229,7 +231,7 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
      * @param amount The amount of stablecoin to redeem
      */
     function redeemStablecoinForEth(uint256 amount) external moreThanZero(amount) nonReentrant {
-        uint256 adjustedEthAmount = _stablecoinToEthRedeemAdjustedConversion(amount);
+        uint256 adjustedEthAmount = stablecoinToEthRedeemAmount(amount);
 
         // Check if the player has enough stablecoin to redeem
         if (i_stablecoin.balanceOf(msg.sender) < amount) {
@@ -241,9 +243,9 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
             revert StablecoinRaffle__NotEnoughEthInVaultToRedeem();
         }
 
-        _revertIfProtocolHealthIsBrokenFromRedeeming(amount, adjustedEthAmount);
-
-        emit StablecoinRedeemed(msg.sender, amount, adjustedEthAmount);
+        // Check if redeeming breaks the protocol health factor
+        uint256 adjustedStablecoinAmountAfterRedeem = (i_stablecoin.totalSupply() - amount);
+        _revertIfProtocolHealthIsBrokenFromRedeeming(adjustedEthAmount, adjustedStablecoinAmountAfterRedeem);
 
         // Burn the stablecoin from the player's balance
         i_stablecoin.burn(msg.sender, amount);
@@ -253,9 +255,51 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
         if (!success) {
             revert StablecoinRaffle__TransferFailed();
         }
+
+        emit StablecoinRedeemed(msg.sender, amount, adjustedEthAmount);
     }
 
-    /*------------------------- PUBLIC FUNCTIONS ---------------*/
+    /*--------------- INTERNAL FUNCTIONS -----------------------------------------*/
+    /**
+     * @notice This function is called by Chainlink VRF to fulfill the random number request.
+     * @notice It picks a random winner from the players who entered the raffle.
+     * @param - NOT USED
+     * @param randomWords - The random number generated by Chainlink VRF
+     */
+    function fulfillRandomWords(uint256, /*requestId*/ uint256[] calldata randomWords) internal override {
+        // Use the random number to pick a winner from the current game
+        uint256 indexOfWinner = randomWords[0] % s_enteredPlayers.length;
+
+        // Get the winner address and set it as the most recent winner
+        address recentWinner = s_enteredPlayers[indexOfWinner];
+        s_mostRecentWinner = recentWinner;
+        emit RaffleWinnerPicked(s_mostRecentWinner);
+
+        // Calculate the adjusted amount of stablecoin to mint for the winner
+        // 1 stablecoin = 1 USD, they will get 1/2 of the game balance
+        uint256 winnerAdjustedAmount = ethToStablecoinWinningAmount(s_gameRoundBalance);
+
+        // Set game to be open and reset players list, balance and time
+        s_gameState = RaffleGameState.OPEN;
+        s_enteredPlayers = new address[](0);
+        s_gameRoundBalance = 0;
+        s_lastTimeStamp = block.timestamp;
+
+        // Mint stablecoin to the winner, in the adjusted amount
+        _mintStablecoinToWinner(recentWinner, winnerAdjustedAmount);
+    }
+
+    /*--------------- PRIVATE FUNCTIONS ------------------------------------------*/
+    /**
+     * @notice This function mints the stablecoin to the winner
+     * @param _winner - The address of the raffle winner
+     * @param _amount - The amount of stablecoin to mint
+     */
+    function _mintStablecoinToWinner(address _winner, uint256 _amount) private {
+        i_stablecoin.mint(_winner, _amount);
+    }
+
+    /*--------------- EXTERNAL/PUBLIC (VIEW & PURE) FUNCTIONS --------------------*/
     /**
      * @notice This function is checking if game conditions are met,
      * before going through the process of picking a winner.
@@ -280,6 +324,7 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
         // Check condition of time, game state, balance and players
         bool enoughTimeHasPassed = ((block.timestamp - s_lastTimeStamp) > i_gameDuration);
         bool isGameOpen = (s_gameState == RaffleGameState.OPEN);
+        // possibly redundant, as players must send ETH to enter
         bool gameHasBalance = (s_gameRoundBalance > 0);
         bool gameHasPlayers = (s_enteredPlayers.length > 0);
 
@@ -288,53 +333,13 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
         return (upkeepNeeded, "");
     }
 
-    /*------------------------- INTERNAL FUNCTIONS -------------*/
-    /**
-     * @notice This function is called by Chainlink VRF to fulfill the random number request.
-     * @notice It picks a random winner from the players who entered the raffle.
-     * @param - NOT USED
-     * @param randomWords - The random number generated by Chainlink VRF
-     */
-    function fulfillRandomWords(uint256, /*requestId*/ uint256[] calldata randomWords) internal override {
-        // Use the random number to pick a winner from the current game
-        uint256 indexOfWinner = randomWords[0] % s_enteredPlayers.length;
-
-        // Get the winner address and set it as the most recent winner
-        address recentWinner = s_enteredPlayers[indexOfWinner];
-        s_mostRecentWinner = recentWinner;
-        emit RaffleWinnerPicked(s_mostRecentWinner);
-
-        // Calculate the adjusted amount of stablecoin to mint for the winner
-        // 1 stablecoin = 1 USD, they will get 1/2 of the game balance
-        uint256 winnerAdjustedAmount = _ethUsdValueAdjustedForWinner(s_gameRoundBalance);
-
-        // Set game to be open and reset players list, balance and time
-        s_gameState = RaffleGameState.OPEN;
-        s_enteredPlayers = new address[](0);
-        s_gameRoundBalance = 0;
-        s_lastTimeStamp = block.timestamp;
-
-        // Mint stablecoin to the winner, in the adjusted amount
-        _mintStablecoinToWinner(recentWinner, winnerAdjustedAmount);
-    }
-
-    /*------------------------- PRIVATE FUNCTIONS --------------*/
-    /**
-     * @notice This function mints the stablecoin to the winner
-     * @param _winner - The address of the raffle winner
-     * @param _amount - The amount of stablecoin to mint
-     */
-    function _mintStablecoinToWinner(address _winner, uint256 _amount) private {
-        i_stablecoin.mint(_winner, _amount);
-    }
-
     /**
      * @notice This function returns the current price of ETH in USD
      * @notice It uses Chainlink price feed to get the latest price
      * @dev The price is returned in 18 decimals format
      * @return The price of ETH in USD
      */
-    function _getPriceOfEth() private view returns (uint256) {
+    function priceOfEth() public view returns (uint256) {
         (, int256 price,,,) = i_priceFeed.latestRoundData();
         // Adjusting the price to match the decimals of ETH = 18
         return uint256(price) * USD_TO_ETH_PRECISION;
@@ -345,62 +350,68 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
      * @param _amount The amount of ETH to convert
      * @return The conversion rate of ETH to USD
      */
-    function _getUsdValueOfEth(uint256 _amount) private view returns (uint256) {
-        uint256 ethPrice = _getPriceOfEth();
+    function usdValueOfEth(uint256 _amount) public view returns (uint256) {
+        uint256 ethPrice = priceOfEth();
         uint256 usdValueOfEthAmount = (ethPrice * _amount) / ETH_PRECISION;
         return usdValueOfEthAmount;
     }
 
     /**
-     * @notice Calculate's the amount of stablecoin to mint to the winner.
-     * @notice An ETH amount is convert to it's USD value and then reduced
-     * by half, as the winner will get 1/2 of the game balance.
-     * @param _amount The amount of ETH to convert
-     * @return The adjusted amount of USD value of ETH to mint as stablecoin
+     * @notice Returns the amount of ETH that would be minted as stablecoin
+     * for the given amount of ETH sent to enter the raffle.
+     * @param ethAmount The amount of ETH to convert to stablecoin
+     * @return The adjusted amount of stablecoin to mint for the given ETH amount
      */
-    function _ethUsdValueAdjustedForWinner(uint256 _amount) private view returns (uint256) {
-        return (_getUsdValueOfEth(_amount)) / HALF;
+    function ethToStablecoinWinningAmount(uint256 ethAmount) public view returns (uint256) {
+        return (usdValueOfEth(ethAmount)) / HALF;
     }
 
     /**
-     * @notice Converts the amount of stablecoin to the adjusted amount of ETH
-     * @notice The adjusted amount is 1/8th of the ETH, as this is the protocol
-     * is designed, to encourage players to keep the stablecoin and not quickly
-     * drain the ETH in the contract.
-     * @param _amount The amount of stablecoin to convert to ETH
-     * @return The adjusted amount of ETH to send to redeemer
+     * @notice Returns the amount of ETH that would be redeemed for the given
+     * amount of stablecoin. The amount is adjusted to be 1/8th of the stablecoin
+     * value, as per protocol design.
+     * @param stablecoinAmount The amount of stablecoin to convert to ETH
+     * @return The adjusted amount of ETH to redeem for the given stablecoin amount
      */
-    function _stablecoinToEthRedeemAdjustedConversion(uint256 _amount) private view returns (uint256) {
-        uint256 priceOfEth = _getPriceOfEth();
-        uint256 stablecoinToEthAmount = (_amount * ETH_PRECISION) / priceOfEth;
+    function stablecoinToEthRedeemAmount(uint256 stablecoinAmount) public view returns (uint256) {
+        uint256 ethPrice = priceOfEth();
+        uint256 stablecoinToEthAmount = (stablecoinAmount * ETH_PRECISION) / ethPrice;
         return stablecoinToEthAmount / EIGHTH;
     }
 
     /**
-     * @notice This function checks if the protocol health factor is maintained
-     * after redeeming stablecoin for ETH. It reverts if redeeming would break
-     * the protocol health factor.
-     * @notice We want to ensure that the protocol is always overcollaterlized, as
-     * in for the total supply of stablecoin, the amount of ETH value in the contract
-     * should be double or more.
-     * @param _stablecoinToRedeem The amount of stablecoin to redeem
-     * @param _ethAdjustedValue The adjusted value of ETH to redeem
+     * @notice Returns the current protocol health factor.
+     * @notice The protocol health factor is the ratio of the ETH value in the contract
+     * to the total supply of stablecoin. It should be at least 2 to ensure overcollateralization.
+     * @return The protocol health factor as a uint256
      */
-    function _revertIfProtocolHealthIsBrokenFromRedeeming(uint256 _stablecoinToRedeem, uint256 _ethAdjustedValue)
-        private
-        view
-    {
-        uint256 stablecoinAdjustedSupply = i_stablecoin.totalSupply() - _stablecoinToRedeem;
-        uint256 protocolEthAdjustedValue = _getUsdValueOfEth((address(this).balance - _ethAdjustedValue));
-        uint256 protocolHealthFactor = protocolEthAdjustedValue / stablecoinAdjustedSupply;
+    function getProtocolHealth() public view returns (uint256) {
+        uint256 stablecoinSupply = i_stablecoin.totalSupply();
+        if (stablecoinSupply == 0) {
+            return type(uint256).max; // If no stablecoins, protocol health is max
+        }
+        uint256 protocolEthValue = usdValueOfEth(address(this).balance);
+        return protocolEthValue / stablecoinSupply;
+    }
 
-        if (protocolHealthFactor < MINIMUM_PROTOCOL_HEALTH) {
-            revert StablecoinRaffle__RedeemingBreaksProtocolHealthFactor();
+    /*--------------- INTERNAL/PRIVATE (VIEW & PURE) FUNCTIONS -------------------*/
+    function _revertIfProtocolHealthIsBrokenFromRedeeming(uint256 _protocolEthValue, uint256 _stablecoinAmount)
+        private
+        pure
+    {
+        if (_stablecoinAmount == 0) {
+            return; // If no stablecoins, protocol health is not broken
+        }
+
+        uint256 protocolHealth = _protocolEthValue / _stablecoinAmount;
+
+        if (protocolHealth < MINIMUM_PROTOCOL_HEALTH) {
+            revert StablecoinRaffle__RedeemingBreaksProtocolHealth();
         }
     }
 
-    /*------------------------- GETTER FUNCTIONS ---------------*/
-    /**
+    /*--------------- GETTER FUNCTIONS -------------------------------------------*/
+    /*
      * @notice This function returns the address of the most recent winner.
      * @return The address of the most recent winner
      */
@@ -455,5 +466,13 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
      */
     function getGameRoundBalance() external view returns (uint256) {
         return s_gameRoundBalance;
+    }
+
+    /**
+     * @notice Returns the last time stamp of the game.
+     * @return The last time stamp of the game
+     */
+    function getLastTimeStamp() external view returns (uint256) {
+        return s_lastTimeStamp;
     }
 }
