@@ -72,7 +72,7 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
     error StablecoinRaffle__NotEnoughStablecoinToRedeem();
     error StablecoinRaffle__TransferFailed();
     error StablecoinRaffle__NotEnoughEthInVaultToRedeem();
-    error StablecoinRaffle__RedeemingBreaksProtocolHealth();
+    error StablecoinRaffle__RedeemingBreaksProtocolHealth(uint256 protocolHealth);
 
     /*--------------- TYPE DECLARATIONS ------------------------------------------*/
     enum RaffleGameState {
@@ -97,7 +97,7 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
 
     uint256 private constant HALF = 2;
     uint256 private constant EIGHTH = 8;
-    uint256 private constant MINIMUM_PROTOCOL_HEALTH = 2;
+    uint256 private constant MINIMUM_PROTOCOL_HEALTH = 2e18;
 
     // Chainlink price feed precision variables
     uint256 private constant USD_TO_ETH_PRECISION = 1e10;
@@ -127,7 +127,7 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
         _;
     }
 
-    /*\/-\/-\/-\/-\/-\/-\/-\/-- FUNCTIONS --\/-\/-\/-\/-\/-\/-\/*/
+    /*\/-\/-\/-\/-\/-\/-\/-\/-\/-\/-\/-- FUNCTIONS --\/-\/-\/-\/-\/-\/-\/-\/-\/-\/*/
     /*--------------- CONSTRUCTOR ------------------------------------------------*/
     constructor(
         address stablecoin,
@@ -139,6 +139,7 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
         uint256 subscriptionId,
         uint32 callbackGasLimit
     ) VRFConsumerBaseV2Plus(vrfCoordinator) {
+        // add check if stablecoin is deployed from zero address
         i_stablecoin = StaluxCoin(stablecoin); // Set the stablecoin contract address
         i_entranceUsdFee = entranceFee; // Set the ticket price in USD, must be in e18 format
         i_gameDuration = gameDuration; // Set the game duration
@@ -231,7 +232,7 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
      * @param amount The amount of stablecoin to redeem
      */
     function redeemStablecoinForEth(uint256 amount) external moreThanZero(amount) nonReentrant {
-        uint256 adjustedEthAmount = stablecoinToEthRedeemAmount(amount);
+        uint256 adjustedEthAmountToReceive = stablecoinToEthRedeemAmount(amount);
 
         // Check if the player has enough stablecoin to redeem
         if (i_stablecoin.balanceOf(msg.sender) < amount) {
@@ -239,24 +240,27 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
         }
 
         // Check if vault has enough balance to redeem adjusted amount
-        if (address(this).balance < adjustedEthAmount) {
+        if (address(this).balance < adjustedEthAmountToReceive) {
             revert StablecoinRaffle__NotEnoughEthInVaultToRedeem();
         }
 
         // Check if redeeming breaks the protocol health factor
-        uint256 adjustedStablecoinAmountAfterRedeem = (i_stablecoin.totalSupply() - amount);
-        _revertIfProtocolHealthIsBrokenFromRedeeming(adjustedEthAmount, adjustedStablecoinAmountAfterRedeem);
+        uint256 protocolEthAfterRedeem = address(this).balance - adjustedEthAmountToReceive;
+        uint256 protocolEthUsdValueAfterRedeem = usdValueOfEth(protocolEthAfterRedeem);
+        uint256 stablecoinSupplyAfterRedeem = (i_stablecoin.totalSupply() - amount);
 
-        // Burn the stablecoin from the player's balance
+        _revertIfProtocolHealthIsBrokenFromRedeeming(protocolEthUsdValueAfterRedeem, stablecoinSupplyAfterRedeem);
+
+        emit StablecoinRedeemed(msg.sender, amount, adjustedEthAmountToReceive);
+
+        // Burn the stablecoin amount from the player's balance
         i_stablecoin.burn(msg.sender, amount);
 
         // Transfer the adjusted amount to the player
-        (bool success,) = msg.sender.call{value: adjustedEthAmount}("");
+        (bool success,) = msg.sender.call{value: adjustedEthAmountToReceive}("");
         if (!success) {
             revert StablecoinRaffle__TransferFailed();
         }
-
-        emit StablecoinRedeemed(msg.sender, amount, adjustedEthAmount);
     }
 
     /*--------------- INTERNAL FUNCTIONS -----------------------------------------*/
@@ -280,10 +284,10 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
         uint256 winnerAdjustedAmount = ethToStablecoinWinningAmount(s_gameRoundBalance);
 
         // Set game to be open and reset players list, balance and time
-        s_gameState = RaffleGameState.OPEN;
         s_enteredPlayers = new address[](0);
         s_gameRoundBalance = 0;
         s_lastTimeStamp = block.timestamp;
+        s_gameState = RaffleGameState.OPEN;
 
         // Mint stablecoin to the winner, in the adjusted amount
         _mintStablecoinToWinner(recentWinner, winnerAdjustedAmount);
@@ -391,7 +395,7 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
             return type(uint256).max; // If no stablecoins, protocol health is max
         }
         uint256 protocolEthValue = usdValueOfEth(address(this).balance);
-        return protocolEthValue / stablecoinSupply;
+        return (protocolEthValue * ETH_PRECISION) / stablecoinSupply;
     }
 
     /*--------------- INTERNAL/PRIVATE (VIEW & PURE) FUNCTIONS -------------------*/
@@ -403,10 +407,10 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
             return; // If no stablecoins, protocol health is not broken
         }
 
-        uint256 protocolHealth = _protocolEthValue / _stablecoinAmount;
+        uint256 protocolHealth = (_protocolEthValue * ETH_PRECISION) / _stablecoinAmount;
 
         if (protocolHealth < MINIMUM_PROTOCOL_HEALTH) {
-            revert StablecoinRaffle__RedeemingBreaksProtocolHealth();
+            revert StablecoinRaffle__RedeemingBreaksProtocolHealth(protocolHealth);
         }
     }
 

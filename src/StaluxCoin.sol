@@ -2,7 +2,7 @@
 
 pragma solidity ^0.8.19;
 
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /*
@@ -19,14 +19,12 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 */
 
 contract StaluxCoin is ERC20, Ownable {
-    /*------------------------- ERRORS -------------------------*/
+    /*\/-\/-\/-\/-\/-\/-\/-\/-\/-\/-\/-- FUNCTIONS --\/-\/-\/-\/-\/-\/-\/-\/-\/-\/*/
 
-    /*\/-\/-\/-\/-\/-\/-\/-\/-- FUNCTIONS --\/-\/-\/-\/-\/-\/-\/*/
-
-    /*------------------------- CONSTRUCTOR --------------------*/
+    /*--------------- CONSTRUCTOR ------------------------------------------------*/
     constructor() ERC20("StaluxCoin", "STALUX") Ownable(msg.sender) {}
 
-    /*------------------------- EXTERNAL FUNCTIONS -------------*/
+    /*--------------- EXTERNAL FUNCTIONS -----------------------------------------*/
     function burn(address from, uint256 amount) external onlyOwner {
         _burn(from, amount);
     }
