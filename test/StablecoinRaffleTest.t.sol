@@ -22,6 +22,7 @@ contract RaffleTest is Test, CodeConstants {
     uint256 public gameInterval;
     address public priceFeedAddress;
     address public vrfCoordinator;
+    uint256 public expectedEthPrice;
     address public PLAYER1 = makeAddr("PLAYER1");
     address public PLAYER2 = makeAddr("PLAYER2");
     uint256 public constant STARTING_PLAYER_BALANCE = 10 ether;
@@ -52,6 +53,12 @@ contract RaffleTest is Test, CodeConstants {
     modifier timeForward() {
         vm.warp(block.timestamp + gameInterval + 1);
         vm.roll(block.number + 1);
+        _;
+    }
+
+    modifier getEthPrice() {
+        (, int256 price,,,) = MockV3Aggregator(priceFeedAddress).latestRoundData();
+        expectedEthPrice = uint256(price) * 1e10; // Convert to 18 decimals
         _;
     }
 
@@ -324,6 +331,7 @@ contract RaffleTest is Test, CodeConstants {
         public
         raffleEntered(amount)
         timeForward
+        skipFork
     {
         vm.recordLogs();
         stablecoinRaffle.performUpkeep("");
@@ -365,9 +373,9 @@ contract RaffleTest is Test, CodeConstants {
     }
 
     /*------------------------- Price Feed Tests ---------------------------*/
-    function testPriceOfEthReturnsCorrectValue() public view {
+    function testPriceOfEthReturnsCorrectValue() public getEthPrice {
         uint256 priceOfEth = stablecoinRaffle.priceOfEth();
-        assertEq(priceOfEth, 2000e18); // Assuming the price of ETH is set to 2000 USD
+        assertEq(priceOfEth, expectedEthPrice);
     }
 
     function testUsdValueOfEthReturnsCorrectValue() public view {
@@ -403,18 +411,15 @@ contract RaffleTest is Test, CodeConstants {
     }
 
     /*------------------------- Calculation Tests --------------------------*/
-    function testGetEthToStablecoinWinningAmountReturnsCorrectValue() public view {
+    function testGetEthToStablecoinWinningAmountReturnsCorrectValue() public getEthPrice {
         uint256 ethAmount = 2 ether;
-        uint256 ethPrice = 2000e18;
-        uint256 expectedStablecoinAmount = ((ethAmount * ethPrice) / 1e18) / 2;
+        uint256 expectedStablecoinAmount = ((ethAmount * expectedEthPrice) / 1e18) / 2;
         assertEq(stablecoinRaffle.ethToStablecoinWinningAmount(ethAmount), expectedStablecoinAmount);
     }
 
-    function testGetStablecoinToEthRedeemAmountReturnsCorrectValue() public view {
+    function testGetStablecoinToEthRedeemAmountReturnsCorrectValue() public getEthPrice {
         uint256 stablecoinAmount = 2 ether;
-        uint256 ethPrice = 2000e18;
-
-        uint256 expectedEthAmount = (stablecoinAmount * 1e18) / ethPrice;
+        uint256 expectedEthAmount = (stablecoinAmount * 1e18) / expectedEthPrice;
         assertEq(stablecoinRaffle.stablecoinToEthRedeemAmount(stablecoinAmount), (expectedEthAmount / 8));
     }
 
