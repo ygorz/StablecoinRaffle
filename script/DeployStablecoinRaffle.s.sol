@@ -14,14 +14,14 @@ contract DeployStablecoinRaffle is Script {
     StablecoinRaffle public stablecoinRaffle;
     HelperConfig public helperConfig;
 
-    function run() external returns (StaluxCoin, StablecoinRaffle, HelperConfig) {
+    function run() external returns (StaluxCoin, StablecoinRaffle, HelperConfig, HelperConfig.NetworkConfig memory) {
         helperConfig = new HelperConfig();
         HelperConfig.NetworkConfig memory config = helperConfig.getConfig();
         VrfSubscriptionInteractions vrfInteractions = new VrfSubscriptionInteractions();
 
         // Create and fund Mock VRF subscription if it doesn't exist
         if (config.vrfSubscriptionId == 0) {
-            uint256 fundAmount = 1000e18; // 1000 mock LINK tokens
+            uint256 fundAmount = type(uint128).max; // 1000 mock LINK tokens
             vrfInteractions.createVrfSubscription(config.vrfCoordinatorAddress, config.deployerAccount);
 
             config.vrfSubscriptionId =
@@ -53,6 +53,6 @@ contract DeployStablecoinRaffle is Script {
             config.vrfCoordinatorAddress, config.vrfSubscriptionId, config.deployerAccount, address(stablecoinRaffle)
         );
 
-        return (staluxCoin, stablecoinRaffle, helperConfig);
+        return (staluxCoin, stablecoinRaffle, helperConfig, config);
     }
 }

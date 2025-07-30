@@ -380,7 +380,7 @@ contract StablecoinRaffle is VRFConsumerBaseV2Plus, AutomationCompatibleInterfac
     function stablecoinToEthRedeemAmount(uint256 stablecoinAmount) public view returns (uint256) {
         uint256 ethPrice = priceOfEth();
         uint256 stablecoinToEthAmount = (stablecoinAmount * ETH_PRECISION) / ethPrice;
-        return stablecoinToEthAmount / EIGHTH;
+        return (stablecoinToEthAmount / EIGHTH);
     }
 
     /**

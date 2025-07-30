@@ -31,7 +31,7 @@ contract RaffleTest is Test, CodeConstants {
 
     function setUp() external {
         DeployStablecoinRaffle deployRaffle = new DeployStablecoinRaffle();
-        (staluxCoin, stablecoinRaffle, helperConfig) = deployRaffle.run();
+        (staluxCoin, stablecoinRaffle, helperConfig,) = deployRaffle.run();
 
         HelperConfig.NetworkConfig memory config = helperConfig.getConfig();
         entranceFee = config.entranceFee;
