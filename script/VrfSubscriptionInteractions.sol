@@ -12,6 +12,10 @@ contract VrfSubscriptionInteractions is Script {
     function run() public {}
 
     function createVrfSubscription(address vrf, address account) public returns (uint256 subId) {
+        // Ensure the block number is not zero to avoid issues with the mock
+        if (block.number == 0) {
+            vm.roll(block.number + 1);
+        }
         vm.startBroadcast(account);
         subId = VRFCoordinatorV2_5Mock(vrf).createSubscription();
         vm.stopBroadcast();
