@@ -1,32 +1,70 @@
-# StablecoinRaffle
+# StablecoinRaffle - A decentralized raffle that awards a stablecoin
 
-// What do we need?  
-// Game contract  
-// Vault to send money to - game vault?  
-// ERC20 token contract  
-// CCIP stuff  
+![License](https://img.shields.io/badge/license-MIT-darkred.svg) ![Solidity](https://img.shields.io/badge/Solidity-%5E0.8.19-blue.svg) ![Foundry](https://img.shields.io/badge/Built%20with-Foundry-orange.svg)
 
-A Solidity project by George Gorzhiyev to practice the following:
+StablecoinRaffle is decentralized raffle that mints a stablecoin to winners and enables redeeming of it for Ethereum.
 
-1 - Users enter a raffle by paying in ETH  
-    a - Chainlink pricefeeds will check value - 2 dollars to enter  
-    b - Chainlink VRF will choose a winner  
-    c - Chainlink Keepers will run the game by calling the function to pick a winner  
+## Features
+- 🔗 **Chainlink Price Feeds**: For accurate tamper-proof price data to calculate raffle minting and redeeming
+- 🔗 **Chainlink Verifiable Random Number**: For generating a verifiably random number to choose the winner of the contract
+- 🔗 **Chainlink Automation Compatability**: For making the raffle completely decentralized and automatically run/executed
 
-2 - Winner of raffle will be minted RaffleCoin, a faux "stablecoin" where the value is collateralized by all of the entries into the raffle, going into a "vault"  
-    a - Each raffle game will last a week and the winner will get half of the games entries in the minted rafflecoin  
-    b - Assumption is 1 rafflecoin - 1 dollar  
-    c - There will naturally be a build up of collateral in the vault as a reserve  
-    d - User can use the rafflecoin as money or go to vault and redeem it for eth but will only get 1/8th the value  
-        i - This is done to keep the user wanting to use the coin and not go to vault to redeem 
-        it as there is now less value doing it that way from the vault  
-        ii - For example, in a round of a game:  
-            - $1000 dollars worth of tickets are purchased  
-            - Winner is chose and given half of that (in minted rafflecoin) so they get 500 RFC (rafflecoin) (1 dollar = 1 RFC)  
-            - The purchased amount of ETH tickets goes into vault  
-            - User can treat the RFC like currency or redeem for ETH in vault  
-            - Redeeming from vault will give 1/8th the value in order to not drain vault  
-            - So user will get 1/8th of 500 in ETH = 62.5  
-            - If they redeem the ETH, the vault will still be overcollateralized and have 1000 - 62.5 = 937.5  
+## Stablecoin & Protocol Information
+- 🪙 **Protocol**: An overcollaterlized debt position. 1 stablecoin = 1 dollar. Protocol should have minimum double the amount of collateral as there is stablecoin. Minting and burning is handled purely by the raffle game contract.
+- 🪙 **Stablecoin (Stalux)**: The stablecoin (named Stalux - Stability + Luxury) is backed by the collateral in the raffle game contract (the ETH being sent by players to enter the raffle)
+- 🪙 **Stablecoin Minting**: When a winner is chosen by Chainlink VRF, the USD value of the Ethereum in the game round is calculated with Chainlink Price Feeds and half of it is minted as the stablecoin to the winner. This way, the coin is always overcollateralized and the backing Ethereum collateral is kept in the raffle.
+- 🪙 **Stablecoin Redeeming**: If a holder of the stablecoin wants to redeem it for Ethereum in the raffle contract, they will receive 1/8th of the value in ETH. This is designed to encourage holders to treat and use it like currency, rather than redeem, where 1 stablecoin = 1 dollar and should they choose to redeem it for ETH. The protocol will not allow a user to redeem their stablecoin if redeeming will reduce collateral value below 200% of the total supply of stablecoin. We want to maintain, roughly, a double overcollaterlized position so there should always be at least double the collateral as compared to stablecoin.
   
-3 - Minted Rafflecoin can be sent cross chain and will incorporate CCIP Cross Chain Token
+###### Possible Future Additions
+<small>- Making the stablecoin cross chain by using Chainlink Cross Chain Token standard.</small>
+<small>- Using native ETH, inside the contract, as payments for Chainlink services, making it fully self running.</small>
+<small>- Adding a front end and making it into a decentralized application (dApp).</small>
+
+
+## Project Structure
+```
+[script]
+    ├── DeployStablecoinRaffle.s.sol    # Deployer script
+    ├── HelperConfig.s.sol              # Helper file 
+    └── VrfSubscriptionInteractions.sol # Script for Mock VRF
+[src]
+    ├── StablecoinRaffle.sol            # Raffle game contract
+    └── StaluxCoin.sol                  # The stablecoin
+[test]
+    ├── [Invariant]                     # Files for Invariant Test
+        ├── Handler.t.sol
+        └── InvariantsTest.t.sol
+    ├── StablecoinRaffleTest.t.sol      # Unit and fuzz tests
+    └── [mocks]                         # Mocks for testing
+        ├── DummyPlayer.sol
+        └── LinkToken.sol
+```
+
+## Getting Started
+### Prerequisites
+- [Foundry](https://book.getfoundry.sh/getting-started/installation)
+- [Git](https://git-scm.com/)
+
+### Installation and Testing
+1. **Clone the repo**
+   ```
+   git clone https://github.com/ygorz/StablecoinRaffle.git
+   cd StablecoinRaffle
+   ```
+
+2. **Install dependencies**
+   ```
+   make install
+   ```
+
+3. **Build project**
+   ```
+   make build
+   ```
+
+4. **Run tests**
+   ```
+   make test
+   ```
+
+**Built to practice the lessons taught by [Cyfrin Updraft](https://updraft.cyfrin.io/) ❤️**
